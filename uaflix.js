@@ -1,140 +1,87 @@
 (function() {
   'use strict';
 
-  // URL для пошуку фільмів (пошуковий запит замінюється на {query})
-  var searchURL = "https://uafix.net/search.html?do=search&subaction=search&story={query}";
+  function UAFixOnlineComponent(object) {
+    var query = object.movie.title || object.movie.original_title;
+    var searchURL = "https://uafix.net/search.html?do=search&subaction=search&story=" + encodeURIComponent(query);
 
-  // Функція для пошуку фільмів за запитом
-  function searchMovies(query) {
-    var url = searchURL.replace("{query}", encodeURIComponent(query));
+    var body = $('<div class="online-prestige online-prestige--full selector"></div>');
+    var loading = $('<div style="padding:2em;text-align:center">Завантаження...</div>');
+    body.append(loading);
 
-    // Використовуємо fetch для запиту до сайту
-    fetch(url)
-      .then(response => response.text())  // Отримуємо HTML сторінку
+    fetch(searchURL)
+      .then(response => response.text())
       .then(data => {
-        let movies = [];
-        
-        // Використовуємо регулярні вирази для пошуку назв фільмів
-        let movieTitles = data.match(/<h2 class="entry-title">(.*?)<\/h2>/g); // шукаємо заголовки фільмів
-        
-        if (movieTitles) {
-          movieTitles.forEach(title => {
-            let movie = title.replace(/<.*?>/g, ''); // Очищаємо HTML-теги
-            movies.push(movie); // Додаємо фільм у масив
+        loading.remove();
+
+        // Парсимо кожен елемент a.sres-wrap з картинкою, назвою і описом
+        var re = /<a\s+class="sres-wrap clearfix"[^>]*href="([^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>[\s\S]*?<h2>([\s\S]*?)<\/h2>[\s\S]*?<div class="sres-desc">([\s\S]*?)<\/div>/g;
+        var match, movies = [];
+        while ((match = re.exec(data)) !== null) {
+          movies.push({
+            url: match[1].startsWith('http') ? match[1] : "https://uafix.net" + match[1],
+            img: match[2].startsWith('http') ? match[2] : "https://uafix.net" + match[2],
+            alt: match[3],
+            title: match[4].trim(),
+            desc: match[5].trim()
           });
         }
 
-        // Виводимо знайдені фільми в консоль
-        console.log("Знайдені фільми для запиту: " + query);
-        if (movies.length > 0) {
-          movies.forEach(movie => console.log(movie));  // Логування кожного знайденого фільму
-        } else {
-          console.log("Фільми не знайдені");
+        if (!movies.length) {
+          body.append('<div style="padding:2em;text-align:center">Фільми не знайдені</div>');
+          return;
         }
 
-        // Виводимо знайдені фільми через темплейт Lampa
-        var movieListHTML = '';
-        movies.forEach(movie => {
-          movieListHTML += Lampa.Template.get('lampac_prestige_folder', {
-            title: movie,
-            time: "Не вказано",
-            info: "Інформація відсутня"
+        movies.forEach(function(movie) {
+          var item = $('<div class="online-prestige online-prestige--folder selector" style="margin-bottom:1em;cursor:pointer"></div>');
+          var info = `
+            <div style="display:flex;gap:1.3em;align-items:flex-start;">
+              <img src="${movie.img}" alt="${movie.alt}" style="width:6em;height:8em;object-fit:cover;border-radius:0.3em;box-shadow:0 2px 8px #0004" />
+              <div>
+                <div class="online-prestige__title" style="font-size:1.2em;font-weight:600">${movie.title}</div>
+                <div class="online-prestige__info" style="margin-top:.5em;color:#bbb">${movie.desc}</div>
+                <div style="margin-top:.9em;">
+                  <span style="background:#2196f3;color:#fff;padding:.3em .8em;border-radius:.3em;font-size:1em">Відкрити на UAFix</span>
+                </div>
+              </div>
+            </div>
+          `;
+          item.append(info);
+
+          // При натисканні відкриваємо сторінку фільму на UAFix у браузері
+          item.on('hover:enter', function() {
+            Lampa.Utils.openLink(movie.url);
           });
+
+          body.append(item);
         });
-
-        // Додаємо знайдені фільми в контейнер
-        scroll.append(movieListHTML);
-
       })
-      .catch(error => {
-        console.error('Помилка при пошуку:', error);
+      .catch(() => {
+        loading.text('Помилка при пошуку.');
       });
+
+    return body;
   }
 
-  // Додаємо джерело до Lampa для пошуку
-  function addSourceSearch(spiderName, spiderUri) {
-    var network = new Lampa.Reguest();
+  // Додаємо власний компонент у Lampa
+  Lampa.Component.add('uafix', UAFixOnlineComponent);
 
-    var source = {
-      title: spiderName,  // Назва джерела
-      search: function(params, oncomplite) {
-        function searchComplite(links) {
-          var keys = Lampa.Arrays.getKeys(links);
+  // Додаємо кнопку "UAFix Онлайн" на картку фільму
+  Lampa.Listener.follow('full', function(e) {
+    if (e.type === 'complite') {
+      if (e.object.activity.render().find('.uafix--button').length) return;
 
-          if (keys.length) {
-            var status = new Lampa.Status(keys.length);
-
-            status.onComplite = function(result) {
-              var rows = [];
-              keys.forEach(function(name) {
-                var line = result[name];
-                if (line && line.data && line.type == 'similar') {
-                  var cards = line.data.map(function(item) {
-                    item.title = Lampa.Utils.capitalizeFirstLetter(item.title);
-                    item.release_date = item.year || '0000';
-                    item.balanser = spiderUri;
-                    return item;
-                  })
-                  rows.push({
-                    title: name,
-                    results: cards
-                  })
-                }
-              })
-              oncomplite(rows);  // Передаємо результат пошуку
-            }
-
-            keys.forEach(function(name) {
-              network.silent(account(links[name]), function(data) {
-                status.append(name, data);
-              }, function() {
-                status.error();
-              })
-            })
-          } else {
-            oncomplite([]);
-          }
-        }
-
-        network.silent(account(Defined.localhost + 'lite/' + spiderUri + '?title=' + params.query), function(json) {
-          searchComplite(json);
-        }, function() {
-          oncomplite([]);
-        });
-      },
-      onCancel: function() {
-        network.clear()
-      },
-      params: {
-        lazy: true,
-        align_left: true
-      },
-      onSelect: function(params, close) {
-        close();
+      var btn = $('<div class="full-start__button selector view--online uafix--button"><span>UAFix Онлайн</span></div>');
+      btn.on('hover:enter', function() {
         Lampa.Activity.push({
-          url: params.element.url,
-          title: 'Lampac - ' + params.element.title,
-          component: 'bwarch',
-          movie: params.element,
-          page: 1,
-          search: params.element.title,
-          clarification: true,
-          balanser: params.element.balanser,
-          noinfo: true
+          url: '',
+          title: 'UAFix Онлайн',
+          component: 'uafix',
+          movie: e.data.movie,
+          page: 1
         });
-      }
-    };
-    Lampa.Search.addSource(source);  // Додаємо джерело пошуку до Lampa
-  }
-
-  // Додаємо джерело пошуку "Онлайн" для Lampa
-  addSourceSearch('Онлайн', 'uafix.net');  // Назва джерела і шлях до нього (замість 'uafix.net' можна використовувати інші URL, якщо потрібно)
-
-  // Отримуємо пошуковий запит з Lampa
-  Lampa.Listener.follow('search', function(data) {
-    var searchQuery = data.search;  // Отримуємо запит, введений користувачем
-    if (searchQuery) {
-      searchMovies(searchQuery);  // Викликаємо функцію для пошуку фільмів
+      });
+      e.object.activity.render().find('.view--torrent').after(btn);
     }
   });
 
