@@ -14,7 +14,6 @@
       .then(data => {
         loading.remove();
 
-        // Парсимо кожен елемент a.sres-wrap з картинкою, назвою і описом
         var re = /<a\s+class="sres-wrap clearfix"[^>]*href="([^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*alt="([^"]+)"[^>]*>[\s\S]*?<h2>([\s\S]*?)<\/h2>[\s\S]*?<div class="sres-desc">([\s\S]*?)<\/div>/g;
         var match, movies = [];
         while ((match = re.exec(data)) !== null) {
@@ -47,12 +46,9 @@
             </div>
           `;
           item.append(info);
-
-          // При натисканні відкриваємо сторінку фільму на UAFix у браузері
           item.on('hover:enter', function() {
             Lampa.Utils.openLink(movie.url);
           });
-
           body.append(item);
         });
       })
@@ -63,15 +59,14 @@
     return body;
   }
 
-  // Додаємо власний компонент у Lampa
   Lampa.Component.add('uafix', UAFixOnlineComponent);
 
-  // Додаємо кнопку "UAFix Онлайн" на картку фільму
   Lampa.Listener.follow('full', function(e) {
     if (e.type === 'complite') {
-      if (e.object.activity.render().find('.uafix--button').length) return;
-
-      var btn = $('<div class="full-start__button selector view--online uafix--button"><span>UAFix Онлайн</span></div>');
+      var btnRow = e.object.activity.render().find('.full-start__buttons');
+      if (!btnRow.length) return;
+      if (btnRow.find('.uafix--button').length) return;
+      var btn = $('<div class="full-start__button selector uafix--button"><span>UAFix Онлайн</span></div>');
       btn.on('hover:enter', function() {
         Lampa.Activity.push({
           url: '',
@@ -81,7 +76,7 @@
           page: 1
         });
       });
-      e.object.activity.render().find('.view--torrent').after(btn);
+      btnRow.append(btn);
     }
   });
 
